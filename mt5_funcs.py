@@ -12,22 +12,22 @@ import pytz
 def connect_mt5():
 	try:
 		if not mt5.initialize():
-			Send_to_tele("❌ MT5 initialization failed")
+			print("❌ MT5 initialization failed")
 			return False
 		
 		account_info = mt5.account_info()
 		if account_info is None:
-			Send_to_tele("❌ Failed to get account info")
+			print("❌ Failed to get account info")
 			return False
 			
-		Send_to_tele(f"""
+		print(f"""
 		✅ MT5 Connected Successfully
 		Balance: ${account_info.balance}
 		Equity: ${account_info.equity}
 		""")
 		return True
 	except Exception as e:
-		Send_to_tele(f"❌ MT5 initialization error: {e}")
+		print(f"❌ MT5 initialization error: {e}")
 		return False
 
 def get_bars(symbol, timeframe, n_bars):
@@ -35,11 +35,11 @@ def get_bars(symbol, timeframe, n_bars):
 	try:
 		rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n_bars)
 		if rates is None:
-			Send_to_tele(f"❌ Failed to get bars for {symbol}")
+			print(f"❌ Failed to get bars for {symbol}")
 			return None
 		return pd.DataFrame(rates)
 	except Exception as e:
-		Send_to_tele(f"❌ Error getting bars for {symbol}: {e}")
+		print(f"❌ Error getting bars for {symbol}: {e}")
 		return None
 
 
@@ -57,7 +57,7 @@ def calculate_global_loss_streak():
 		trades = mt5.history_deals_get(past_date, today)
 		
 		if trades is None or len(trades) == 0:
-			Send_to_tele("No trading history found - Using base risk")
+			print("No trading history found - Using base risk")
 			return 1, 0
 			
 		# Convert trades to DataFrame
@@ -70,9 +70,9 @@ def calculate_global_loss_streak():
 		trades_df = trades_df.sort_values('time', ascending=False)
 		
 		# First, let's see all trades before processing
-		Send_to_tele("Raw trades before processing:")
+		print("Raw trades before processing:")
 		for _, trade in trades_df.head(10).iterrows():
-			Send_to_tele(f"Time: {trade['time']}, Symbol: {trade['symbol']}, Profit: {trade['profit']}, Position: {trade['position_id']}")
+			print(f"Time: {trade['time']}, Symbol: {trade['symbol']}, Profit: {trade['profit']}, Position: {trade['position_id']}")
 		
 		# Group by position ID and deal entry/exit
 		position_trades = trades_df.groupby(['position_id']).agg({
@@ -109,20 +109,20 @@ def calculate_global_loss_streak():
 		loss_streak = max(1, loss_streak)
 		
 		# Log analysis results with full detail
-		Send_to_tele(f"""
-🔍 Loss Streak Analysis:
-Recent trades (newest first):
-{chr(10).join(trade_log)}
+# 		print(f"""
+# 🔍 Loss Streak Analysis:
+# Recent trades (newest first):
+# {chr(10).join(trade_log)}
 
-Current Streak: {loss_streak} losses
-Total Loss: ${cumulative_loss:.2f}
-Trades Analyzed: {len(position_trades)}
-		""")
+# Current Streak: {loss_streak} losses
+# Total Loss: ${cumulative_loss:.2f}
+# Trades Analyzed: {len(position_trades)}
+# 		""")
 		
 		return loss_streak, cumulative_loss
 		
 	except Exception as e:
-		Send_to_tele(f"Error calculating loss streak: {str(e)}\n{e.format_exc()}")
+		print(f"Error calculating loss streak: {str(e)}\n{e.format_exc()}")
 		return 1, 0  # Return base values on error
 
 def calculate_risk_amount(loss_streak, cumulative_loss):
@@ -135,7 +135,7 @@ def calculate_risk_amount(loss_streak, cumulative_loss):
 		#Formula: (((loss_streak + 1) * 10) + cumulative_loss) / 3
 		risk = (((loss_streak + 1) * 10) + cumulative_loss) / 3
 		
-		Send_to_tele(f"""
+		print(f"""
 		💰 Risk Calculation:
 		Formula: (((loss_streak + 1) * 10) + cumulative_loss) / 3
 		Values:
@@ -150,7 +150,7 @@ def calculate_risk_amount(loss_streak, cumulative_loss):
 		return round(risk, 2)
 		
 	except Exception as e:
-		Send_to_tele(f"⚠️ Error in risk calculation: {str(e)}")
+		print(f"⚠️ Error in risk calculation: {str(e)}")
 		return 10.0
 
 def calculate_lot_size(risk_amount, stop_loss_points, symbol):
@@ -216,54 +216,130 @@ def calculate_lot_size(risk_amount, stop_loss_points, symbol):
     except Exception as e:
         return 0.01, risk_amount
 
-def place_order(symbol, order_type, price, sl, tp, comment=""):
-	"""Place trading order with automatic risk calculation"""
-	try:
-		Send_to_tele(f"""
-		🔄 Starting Order Placement:
-		Symbol: {symbol}
-		Entry: {price}
-		Stop Loss: {sl}
-		Take Profit: {tp}
-		""")
-		
-		loss_streak, cumulative_loss = calculate_global_loss_streak()
-		risk_amount = calculate_risk_amount(loss_streak, cumulative_loss)
-		
-		sl_pips = abs(price - sl) / mt5.symbol_info(symbol).point
-		Send_to_tele(f"📏 Stop Loss Distance: {sl_pips} points")
-		
-		lot_size = calculate_lot_size(risk_amount, sl_pips, symbol)
-		
-		request = {
-			"action": mt5.TRADE_ACTION_PENDING,
-			"symbol": symbol,
-			"volume": lot_size,
-			"type": order_type,
-			"price": price,
-			"sl": sl,
-			"tp": tp,
-			"deviation": 20,
-			"magic": 234000,
-			"comment": f"{comment} Risk=${risk_amount}",
-			"type_time": mt5.ORDER_TIME_GTC,
-			"type_filling": mt5.ORDER_FILLING_IOC,
-		}
-		
 
-		
-		result = mt5.order_send(request)
-		
-		if result.retcode != mt5.TRADE_RETCODE_DONE:
-			Send_to_tele(f"❌ Order placement failed: {result.comment}")
-			return None
-			
-		Send_to_tele(f"✅ Order placed successfully. Ticket: {result.order}")
-		return result.order
-		
-	except Exception as e:
-		Send_to_tele(f"❌ Error placing order: {e}")
-		return None
+def check_trading_capabilities(symbol):
+    """Check specific trading capabilities for a symbol"""
+    # print("\n🔍 Checking Trading Capabilities:")
+    
+    # Check symbol properties
+    symbol_info = mt5.symbol_info(symbol)
+    if symbol_info is None:
+        print(f"❌ Symbol {symbol} not found")
+        return False
+        
+    if not symbol_info.visible:
+        if not mt5.symbol_select(symbol, True):
+            print(f"❌ Symbol {symbol} selection failed")
+            return False
+            
+    # print(f"\nSymbol Properties for {symbol}:")
+    # print(f"Trade Mode: {symbol_info.trade_mode}")
+    # print(f"Execution Mode: {symbol_info.trade_exemode}")
+    # print(f"Filling Mode: {symbol_info.filling_mode}")
+    # print(f"Order Mode: {symbol_info.order_mode}")
+    # print(f"Spread: {symbol_info.spread} points")
+    # print(f"Tick Value: {symbol_info.trade_tick_value}")
+    # print(f"Contract Size: {symbol_info.trade_contract_size}")
+    # print(f"Minimum Lot: {symbol_info.volume_min}")
+    # print(f"Maximum Lot: {symbol_info.volume_max}")
+    # print(f"Lot Step: {symbol_info.volume_step}")
+    
+    return True
+
+
+def validate_order_parameters(symbol, price, sl, tp):
+    """Validate order parameters against symbol specifications"""
+    symbol_info = mt5.symbol_info(symbol)
+    if symbol_info is None:
+        print(f"❌ Failed to get symbol info for {symbol}")
+        return False
+        
+    # print("\n📊 Symbol Information:")
+    # print(f"Trade Mode: {symbol_info.trade_mode}")
+    # print(f"Spread: {symbol_info.spread}")
+    # print(f"Tick Size: {symbol_info.trade_tick_size}")
+    # print(f"Contract Size: {symbol_info.trade_contract_size}")
+    # print(f"Minimum Volume: {symbol_info.volume_min}")
+    # print(f"Maximum Volume: {symbol_info.volume_max}")
+    
+    # Check if price levels are within allowed ranges
+    tick_size = symbol_info.trade_tick_size
+    if tick_size > 0:
+        # Round to nearest valid tick size instead of checking modulo
+        price = round(price / tick_size) * tick_size
+        sl = round(sl / tick_size) * tick_size
+        tp = round(tp / tick_size) * tick_size
+            
+    return price , sl , tp
+
+
+# Modified place_order function to include diagnostics
+def place_order(symbol, order_type, price, sl, tp, comment=""):
+    """Place trading order with automatic risk calculation and diagnostics"""
+    try:
+        # Run diagnostics first
+        if not check_trading_capabilities(symbol):
+            print("❌ MT5 connection check failed")
+            return None
+            
+        price, sl, tp =  validate_order_parameters(symbol, price, sl, tp)
+            
+        print(f"""
+        🔄 Starting Order Placement:
+        Symbol: {symbol}
+        Entry: {price}
+        Stop Loss: {sl}
+        Take Profit: {tp}
+        """)
+        
+        loss_streak, cumulative_loss = calculate_global_loss_streak()
+        risk_amount = calculate_risk_amount(loss_streak, cumulative_loss)
+        
+        sl_pips = abs(price - sl) / mt5.symbol_info(symbol).point
+        print(f"📏 Stop Loss Distance: {sl_pips} points")
+        
+        lot_size , risk_amount = calculate_lot_size(risk_amount, sl_pips, symbol)
+        
+        request = {
+            "action": mt5.TRADE_ACTION_PENDING,
+            "symbol": symbol,
+            "volume": lot_size,
+            "type": order_type,
+            "price": price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        # Print request details for debugging
+        print("\n📝 Order Request Details:")
+        for key, value in request.items():
+            print(f"{key}: {value}")
+        
+        result = mt5.order_send(request)
+        if result is None:
+            print("\n❌ Order placement failed: No response from MT5")
+            print(f"Last Error: {mt5.last_error()}")
+            return None
+            
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            print(f"\n❌ Order placement failed. Error code: {result.retcode}")
+            print(f"Error description: {result.comment}")
+            return None
+            
+        print(f"\n✅ Order placed successfully. Ticket: {result.order}")
+        return result.order
+        
+    except Exception as e:
+        print(f"\n❌ Error placing order: {str(e)}")
+        print(f"Last Error: {mt5.last_error()}")
+        return None
+
+
 	
 	
 	
@@ -280,17 +356,17 @@ def cancel_all_orders(symbol=None):
 				"action": mt5.TRADE_ACTION_REMOVE,
 				"order": order.ticket,
 			}
-			Send_to_tele(f"🔄 Attempting to cancel order {order.ticket} for {symbol if symbol else 'all symbols'}")
+			# print(f"🔄 Attempting to cancel order {order.ticket} for {symbol if symbol else 'all symbols'}")
 			
 			result = mt5.order_send(request)
 			if result.retcode != mt5.TRADE_RETCODE_DONE:
-				Send_to_tele(f"❌ Failed to cancel order {order.ticket}: {result.comment}")
+				print(f"❌ Failed to cancel order {order.ticket}: {result.comment}")
 				return False
 				
-			Send_to_tele(f"✅ Order {order.ticket} cancelled successfully")
+			print(f"✅ Order {order.ticket} cancelled successfully")
 		return True
 	except Exception as e:
-		Send_to_tele(f"❌ Error cancelling orders: {e}")
+		print(f"❌ Error cancelling orders: {e}")
 		return False
 
 def close_position(symbol):
@@ -302,7 +378,7 @@ def close_position(symbol):
 			
 		tick = mt5.symbol_info_tick(symbol)
 		if tick is None:
-			Send_to_tele(f"❌ Failed to get tick data for {symbol}")
+			print(f"❌ Failed to get tick data for {symbol}")
 			return False
 			
 		request = {
@@ -319,7 +395,7 @@ def close_position(symbol):
 			"type_filling": mt5.ORDER_FILLING_IOC,
 		}
 		
-		Send_to_tele(f"""
+		print(f"""
 		🔄 Closing Position:
 		Symbol: {symbol}
 		Ticket: {position[0].ticket}
@@ -329,13 +405,13 @@ def close_position(symbol):
 		
 		result = mt5.order_send(request)
 		if result.retcode != mt5.TRADE_RETCODE_DONE:
-			Send_to_tele(f"❌ Failed to close position: {result.comment}")
+			print(f"❌ Failed to close position: {result.comment}")
 			return False
 			
-		Send_to_tele(f"✅ Position closed successfully")
+		print(f"✅ Position closed successfully")
 		return True
 	except Exception as e:
-		Send_to_tele(f"❌ Error closing position: {e}")
+		print(f"❌ Error closing position: {e}")
 		return False
 
 
@@ -353,7 +429,8 @@ def check_trading_hours():
 					 current_time <= datetime.strptime("15:00", "%H:%M").time()
 	
 	if not is_trading_time:
-		Send_to_tele("⏰ Outside trading hours")
+		print("⏰ Outside trading hours")
+		time.sleep(600)
 	return is_trading_time
 
 
@@ -373,18 +450,18 @@ def has_open_positions():
 		
 		if position_count > 0:
 			positions_info = "\n".join([f"{p.symbol}: {p.volume} lots" for p in positions])
-			Send_to_tele(f"""
-			🔄 Open Positions Found:
-			{positions_info}
-			""")
+			# print(f"""
+			# 🔄 Open Positions Found:
+			# {positions_info}
+			# """)
 		
 			if position_count > 1:
-				Send_to_tele(f"⚠️ Multiple positions detected ({position_count}). Closing one random position...")
+				print(f"⚠️ Multiple positions detected ({position_count}). Closing one random position...")
 				
 				# Choose random position to close
 				position_to_close = random.choice(positions)
 				
-				Send_to_tele(f"""
+				print(f"""
 				🔄 Closing extra position:
 				Symbol: {position_to_close.symbol}
 				Ticket: {position_to_close.ticket}
@@ -394,20 +471,20 @@ def has_open_positions():
 				close_position(position_to_close.symbol)
 
 			# Get all active symbols
-			active_symbols = [p.symbol for p in positions]
-			Send_to_tele(f"Active symbols: {active_symbols}")
+			# active_symbols = [p.symbol for p in positions]
+			# print(f"Active symbols: {active_symbols}")
 			
 			# Cancel ALL pending orders when we have positions
 			for symbol in SYMBOLS:
 				orders = mt5.orders_get(symbol=symbol)
 				if orders:
-					Send_to_tele(f"🔄 Cancelling pending orders for {symbol}")
+					print(f"🔄 Cancelling pending orders for {symbol}")
 					cancel_all_orders(symbol)
 
 		return position_count > 0
 		
 	except Exception as e:
-		Send_to_tele(f"❌ Error checking positions: {e}")
+		print(f"❌ Error checking positions: {e}")
 		return True  # Return True on error to prevent new trades
 
 	

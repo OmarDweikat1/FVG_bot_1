@@ -6,7 +6,6 @@ import time
 from mt5_funcs import *
 from confg import *
 
-
 class FVGState:
     """Class to track FVG state for each symbol"""
     def __init__(self):
@@ -41,7 +40,7 @@ def detect_fvg(df):
         return fvg_type, upper_level, lower_level
         
     except Exception as e:
-        Send_to_tele(f"❌ Error in FVG detection: {e}")
+        print(f"❌ Error in FVG detection: {e}")
         return 0, None, None
 
 def calculate_fvg(df):
@@ -74,6 +73,7 @@ def calculate_fvg(df):
 def process_symbol(symbol):
     """Process single symbol"""
     try:
+        state = symbol_states[symbol]
         if has_open_positions() : 
             for pair in SYMBOLS:
                 cancel_all_orders(pair)
@@ -86,7 +86,7 @@ def process_symbol(symbol):
             df_low = get_bars(symbol, TIMEFRAME_LOW, 3)
             
             if df_high is None or df_low is None:
-                Send_to_tele(f"❌ Error getting data for {symbol}")
+                print(f"❌ Error getting data for {symbol}")
                 return
                 
             # Check for FVG on higher timeframe
@@ -106,15 +106,16 @@ def process_symbol(symbol):
             if state.active:
                 current_price = mt5.symbol_info_tick(symbol)
                 if current_price is None:
-                    Send_to_tele(f"❌ Failed to get current price for {symbol}")
+                    print(f"❌ Failed to get current price for {symbol}")
                     return
+            
                             
                 # Check invalidation
                 if (state.type == 1 and current_price.bid <= state.lower_level) or \
                 (state.type == -1 and current_price.ask >= state.upper_level):
                     cancel_all_orders(symbol)
                     state.active = False
-                    Send_to_tele(f"❌ FVG invalidated for {symbol} - Price reached invalidation level")
+                    print(f"❌ FVG invalidated for {symbol} - Price reached invalidation level")
                     return
                     
                 # Check time expiration (one 10m candle)
@@ -134,7 +135,7 @@ def process_symbol(symbol):
                 existing_orders = mt5.orders_get(symbol=symbol)
                 
                 if not existing_orders and state.current_order is not None:
-                    Send_to_tele(f"🔄 Resetting order state for {symbol} as no orders exist")
+                    print(f"🔄 Resetting order state for {symbol} as no orders exist")
                     state.current_order = None
 
                 # Place or update order
@@ -198,7 +199,7 @@ def process_symbol(symbol):
                             # Send_to_tele(f"🔄 Updating sell stop levels for {symbol}")
 
     except Exception as e:
-        Send_to_tele(f"❌ Error processing {symbol}: {e}")
+        print(f"❌ Error processing {symbol}: {e}")
         # Reset state on error
         state.active = False
         state.current_order = None
@@ -208,10 +209,10 @@ def main():
     """Main bot loop"""
     # Connect to MT5
     if not connect_mt5():
-        Send_to_tele("Failed to connect to MT5")
+        print("Failed to connect to MT5")
         return
         
-    Send_to_tele("FVG Bot started")
+    print("FVG Bot started")
     
     while True:
         try:
@@ -235,7 +236,7 @@ def main():
                 time.sleep(0.1)  # Small delay between symbols
                 
         except Exception as e:
-            Send_to_tele(f"Main loop error: {e}")
+            print(f"Main loop error: {e}")
             
             time.sleep(1)  # Main loop delay
 
