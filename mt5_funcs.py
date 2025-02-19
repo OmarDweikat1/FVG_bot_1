@@ -102,6 +102,9 @@ def calculate_global_loss_streak():
 			if profit < 2:
 				loss_streak += 1
 				cumulative_loss += abs(profit)
+				if loss_streak > 10:
+					loss_streak = 0 
+					cumulative_loss = 0
 			else:
 				break  # Stop counting at first profitable trade
 				
@@ -247,6 +250,57 @@ def check_trading_capabilities(symbol):
     return True
 
 
+import pandas_ta as ta
+
+# Modify place_order function to handle market orders
+def place_order(symbol, order_type, price, sl, tp, comment=""):
+    """Place market order with risk management"""
+    try:
+        if not check_trading_capabilities(symbol):
+            return None
+
+        # Determine order action and price
+        if order_type in [mt5.ORDER_TYPE_BUY, mt5.ORDER_TYPE_SELL]:
+            action = mt5.TRADE_ACTION_DEAL
+            tick = mt5.symbol_info_tick(symbol)
+            price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
+        else:
+            action = mt5.TRADE_ACTION_PENDING
+
+        # Risk management calculations
+        loss_streak, cumulative_loss = calculate_global_loss_streak()
+        risk_amount = calculate_risk_amount(loss_streak, cumulative_loss)
+        
+        # Calculate stop loss points
+        sl_points = abs(price - sl) / mt5.symbol_info(symbol).point
+        lot_size, actual_risk = calculate_lot_size(risk_amount, sl_points, symbol)
+
+        request = {
+            "action": action,
+            "symbol": symbol,
+            "volume": lot_size,
+            "type": order_type,
+            "price": price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": comment,
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            print(f"Order failed: {result.comment}")
+            return None
+            
+        return result.order
+    except Exception as e:
+        print(f"Order error: {e}")
+        return None
+
+
 def validate_order_parameters(symbol, price, sl, tp):
     """Validate order parameters against symbol specifications"""
     symbol_info = mt5.symbol_info(symbol)
@@ -273,71 +327,71 @@ def validate_order_parameters(symbol, price, sl, tp):
     return price , sl , tp
 
 
-# Modified place_order function to include diagnostics
-def place_order(symbol, order_type, price, sl, tp, comment=""):
-    """Place trading order with automatic risk calculation and diagnostics"""
-    try:
-        # Run diagnostics first
-        if not check_trading_capabilities(symbol):
-            print("❌ MT5 connection check failed")
-            return None
+# # Modified place_order function to include diagnostics
+# def place_order(symbol, order_type, price, sl, tp, comment=""):
+#     """Place trading order with automatic risk calculation and diagnostics"""
+#     try:
+#         # Run diagnostics first
+#         if not check_trading_capabilities(symbol):
+#             print("❌ MT5 connection check failed")
+#             return None
             
-        price, sl, tp =  validate_order_parameters(symbol, price, sl, tp)
+#         price, sl, tp =  validate_order_parameters(symbol, price, sl, tp)
             
-        print(f"""
-        🔄 Starting Order Placement:
-        Symbol: {symbol}
-        Entry: {price}
-        Stop Loss: {sl}
-        Take Profit: {tp}
-        """)
+#         print(f"""
+#         🔄 Starting Order Placement:
+#         Symbol: {symbol}
+#         Entry: {price}
+#         Stop Loss: {sl}
+#         Take Profit: {tp}
+#         """)
         
-        loss_streak, cumulative_loss = calculate_global_loss_streak()
-        risk_amount = calculate_risk_amount(loss_streak, cumulative_loss)
+#         loss_streak, cumulative_loss = calculate_global_loss_streak()
+#         risk_amount = calculate_risk_amount(loss_streak, cumulative_loss)
         
-        sl_pips = abs(price - sl) / mt5.symbol_info(symbol).point
-        print(f"📏 Stop Loss Distance: {sl_pips} points")
+#         sl_pips = abs(price - sl) / mt5.symbol_info(symbol).point
+#         print(f"📏 Stop Loss Distance: {sl_pips} points")
         
-        lot_size , risk_amount = calculate_lot_size(risk_amount, sl_pips, symbol)
+#         lot_size , risk_amount = calculate_lot_size(risk_amount, sl_pips, symbol)
         
-        request = {
-            "action": mt5.TRADE_ACTION_PENDING,
-            "symbol": symbol,
-            "volume": lot_size,
-            "type": order_type,
-            "price": price,
-            "sl": sl,
-            "tp": tp,
-            "deviation": 20,
-            "magic": 234000,
-            "comment": "",
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-        }
+#         request = {
+#             "action": mt5.TRADE_ACTION_PENDING,
+#             "symbol": symbol,
+#             "volume": lot_size,
+#             "type": order_type,
+#             "price": price,
+#             "sl": sl,
+#             "tp": tp,
+#             "deviation": 20,
+#             "magic": 234000,
+#             "comment": "",
+#             "type_time": mt5.ORDER_TIME_GTC,
+#             "type_filling": mt5.ORDER_FILLING_IOC,
+#         }
         
-        # Print request details for debugging
-        print("\n📝 Order Request Details:")
-        for key, value in request.items():
-            print(f"{key}: {value}")
+#         # Print request details for debugging
+#         print("\n📝 Order Request Details:")
+#         for key, value in request.items():
+#             print(f"{key}: {value}")
         
-        result = mt5.order_send(request)
-        if result is None:
-            print("\n❌ Order placement failed: No response from MT5")
-            print(f"Last Error: {mt5.last_error()}")
-            return None
+#         result = mt5.order_send(request)
+#         if result is None:
+#             print("\n❌ Order placement failed: No response from MT5")
+#             print(f"Last Error: {mt5.last_error()}")
+#             return None
             
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
-            print(f"\n❌ Order placement failed. Error code: {result.retcode}")
-            print(f"Error description: {result.comment}")
-            return None
+#         if result.retcode != mt5.TRADE_RETCODE_DONE:
+#             print(f"\n❌ Order placement failed. Error code: {result.retcode}")
+#             print(f"Error description: {result.comment}")
+#             return None
             
-        print(f"\n✅ Order placed successfully. Ticket: {result.order}")
-        return result.order
+#         print(f"\n✅ Order placed successfully. Ticket: {result.order}")
+#         return result.order
         
-    except Exception as e:
-        print(f"\n❌ Error placing order: {str(e)}")
-        print(f"Last Error: {mt5.last_error()}")
-        return None
+#     except Exception as e:
+#         print(f"\n❌ Error placing order: {str(e)}")
+#         print(f"Last Error: {mt5.last_error()}")
+#         return None
 
 
 	
