@@ -99,14 +99,13 @@ def main():
         return
 
     print("ATR Bot started")
-    time.sleep(25200)
     while True:
         try:
             if not check_trading_hours():
-                for symbol in SYMBOLS:
-                    close_position(symbol)
-                    cancel_all_orders(symbol)
-                time.sleep(60)
+                # for symbol in SYMBOLS:
+                #     close_position(symbol)
+                #     cancel_all_orders(symbol)
+                # time.sleep(60)
                 continue
 
             # Process each symbol
